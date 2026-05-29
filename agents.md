@@ -44,14 +44,14 @@ Agents must not add arbitrary dependencies. Only the following approved crates a
 
 | Subsystem | Approved Technology | Implementation Constraints |
 | :--- | :--- | :--- |
-| **Core Language** | Rust (Latest Stable) | Idiomatic, zero-copy architecture where applicable. |
+| **Core Language** | Rust (Latest Stable) | Idiomatic, zero-copy architecture where applicable. MSRV: latest stable, reviewed quarterly. |
 | **UI Framework** | `slint` | Declarative UI DSL compiled natively down to bare metal. |
 | **IPC Transport** | `interprocess` | Local Unix domain sockets (Linux/macOS) / Named Pipes (Windows). |
-| **Serialization** | `postcard` or `bincode` | Strictly typed, compact binary format with zero-copy features. |
-| **Fuzzy Matching**| `nucleo` or `frizbee` | Lock-free concurrent streaming or SIMD-accelerated matching. |
-| **Wasm Runtime** | `wasmtime` or `extism` | WASI execution environment configured for lowest possible overhead. |
-| **Database** | `redb` or `fjall` | Pure Rust, ACID-compliant, low-footprint alternative to SQLite. |
-| **Wayland Native**| `smithay-client-toolkit` | `wayland-protocols` interaction for window positioning. |
+| **Serialization** | `postcard` (primary) / `bincode` (approved fallback) | Strictly typed, compact binary format with zero-copy features. New code should default to `postcard`. |
+| **Fuzzy Matching**| `nucleo` (primary) / `frizbee` (approved fallback) | Lock-free concurrent streaming or SIMD-accelerated matching. |
+| **Wasm Runtime** | `wasmtime` (primary) / `extism` (approved fallback) | WASI execution environment configured for lowest possible overhead. Note: `extism` wraps `wasmtime` and constrains the plugin manifest format to the Extism PDK; choose deliberately. |
+| **Database** | `redb` (primary) / `fjall` (approved fallback) | Pure Rust, ACID-compliant, low-footprint alternative to SQLite. |
+| **Wayland Native**| `smithay-client-toolkit` + `wayland-protocols` | Layer-shell window positioning and surface lifecycle. |
 | **Global Hotkeys**| `global-hotkey` | Native hooks with `zbus` (D-Bus) fallback for Wayland compositors. |
 
 ---
@@ -88,7 +88,7 @@ When generating code for subsystems, agents must follow these explicit mitigatio
 * **Problem:** Instantiating a default Wasmtime engine with Cranelift compilation can consume 30-50MB of RAM instantly due to internal buffers, code cache, and allocator structures.
 * **Mandatory Solution:**
   1. Configure `wasmtime` with a **Pooling Allocator** to explicitly cap maximum per-instance resource consumption.
-  2. Set compiler optimizations to `OptLevel::None` at runtime if dynamic loading is needed, or ideally use **Ahead-of-Time (AOT) Pre-compilation** to compile `.wasm` modules into native `.c conviction` bytecode during plugin installation, bypassing JIT memory overhead entirely.
+  2. Set compiler optimizations to `OptLevel::None` at runtime if dynamic loading is needed, or ideally use **Ahead-of-Time (AOT) Pre-compilation** to compile `.wasm` modules into wasmtime's serialized `.cwasm` (compiled module) format during plugin installation, bypassing JIT memory overhead entirely.
 
 ### 4.3 Wayland Visibility, Grabbing, and Instant Toggling
 * **Problem:** Standard Wayland security primitives deliberately block applications from mapping frameless floating windows that grab global keyboard focus. Additionally, standard Wayland windows cannot be dynamically "hidden" or "shown" without complete client teardown.
@@ -103,5 +103,13 @@ When generating code for subsystems, agents must follow these explicit mitigatio
 
 * **No Web Views:** Under no circumstances should Electron, Tauri, Wry, WebView2, or any browser-based runtime be imported. Code additions doing so will be rejected.
 * **Memory Allocations:** Minimize allocations in the hot path (as-you-type fuzzy searching). Reuse vectors, utilize references, and leverage zero-copy parsing (`postcard::from_bytes`) directly out of the IPC stream buffers.
-* **Async Framework:** Prefer a lightweight async runtime or direct OS thread channels to keep the footprint small, rather than standard heavy multi-threaded setups if unnecessary.
+* **Async Framework:** Prefer a lightweight async runtime (`smol` / `async-executor`) or direct OS thread channels to keep the footprint small. If `tokio` is required, it must be declared with `default-features = false` and only the minimal feature set needed (e.g., `rt`, `net`, `macros`); pulling in `tokio` with default or `full` features is not permitted.
 * **Error Handling:** Avoid `.unwrap()` and `.expect()`. Use `thiserror` for library components and `anyhow` for top-level binaries. All IPC disconnection events must trigger smooth client state adjustments or automated reconnect attempts rather than crashing.
+
+---
+
+## 6. Project Conventions
+
+* **License:** The project is licensed under **GPL-3.0**. All new source files must include an SPDX header (`// SPDX-License-Identifier: GPL-3.0-or-later`).
+* **Lints & Formatting:** Code must pass `cargo fmt --check` and `cargo clippy --all-targets -- -D warnings` before merge. CI must enforce both.
+* **Plugin Manifest:** Plugins declare their requested capabilities (filesystem paths, network hosts, environment variables) in a TOML manifest co-located with the `.wasm`/`.cwasm` artifact. The canonical schema lives in `docs/plugin-manifest.md`; agents must not invent ad-hoc manifest formats. Capabilities not declared in the manifest must never be granted at runtime.

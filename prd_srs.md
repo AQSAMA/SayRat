@@ -3,18 +3,19 @@ Project Codename: SayRat
 License: GPL-3.0 (Open Source)
 Part 1: Product Requirement Document (PRD)
  1. Product Vision & Problem Statement
+
    Vision: To build an open-source, ultra-lightweight keyboard launcher for desktop power users. It aims to deliver instant cold-starts, near-zero input latency, and a sandboxed WebAssembly plugin ecosystem, all while striving for a sub-20MB total memory footprint.
 Problem Statement: Existing launcher solutions often face challenges in the modern desktop environment:
  1. Web-based Heavyweights: Electron/WebView-based launchers rely heavily on embedded browsers, which can result in larger memory footprints (150–400MB RAM), perceptible input lag, and slower cold starts.
  2. Legacy Native Limitations: Native but X11-centric launchers may struggle on modern Wayland compositors due to their reliance on older window management primitives, and they often lack modern, isolated extensibility.
- 3. Target Audience & Use Cases
+ 2. Target Audience & Use Cases
    Primary Audience: Linux Power Users, system administrators, minimalists, and developers using tiling window managers (Sway, Hyprland) or Wayland desktops.
    Secondary Audience: macOS and Windows developers seeking a fast, hyper-minimalist alternative to Spotlight or PowerToys Run.
    Core Use Cases:
    Rapid application launching and window switching.
    Blazing-fast fuzzy file navigation.
    Interacting with third-party APIs via sandboxed plugins.
- 4. MVP Features (Phase 1)
+ 3. MVP Features (Phase 1)
    Instant UI Rendering: The interface should ideally appear instantly upon a global hotkey press.
    Fuzzy Finding Engine: As-you-type, typo-tolerant search across entries (applications, files) with minimal UI blocking.
    Dual-Process Architecture: It is highly recommended to use a headless background daemon handling state/Wasm execution, alongside an ephemeral UI client for pure rendering.
@@ -34,7 +35,7 @@ Suspended State: Ideally maintain an invisible state in memory, waking swiftly u
 Protocol: Bi-directional, low-latency communication over Local Sockets is recommended.
 Payloads: Using strictly typed, zero-copy serialization (such as postcard or bincode) is highly encouraged.
  5. Non-Functional Requirements (Targets)
-   Memory Budgets: The project should aim for the Slint UI Client to consume < 5MB RAM, and the background Daemon to idle at < 15MB RAM.
+   Memory Budgets: The project should aim for the Slint UI Client to consume < 5MB RAM, and the background Daemon to idle at < 15MB RAM. The combined steady-state target is approximately 20MB; individual budgets may be revised so long as the aggregate footprint remains close to this ceiling.
    Latency: Search results should ideally update within 16ms (60Hz frame rate) after a keystroke.
    Security (WASI): Plugins should execute inside a wasmtime (or similar) engine configured with no ambient authority, preventing arbitrary host filesystem or network access by default.
  6. Architectural Edge-Cases & Suggested Mitigations
@@ -47,13 +48,14 @@ The Problem: Initializing a default Wasm engine (like Wasmtime with Cranelift) c
 Suggested Solution: The Wasm runtime could be tuned to reduce footprint. Potential strategies include:
  1. Pooling Allocator: Pre-allocating instance resources to eliminate per-instance overhead.
  2. Low-Overhead Compilation: Configuring the compiler (e.g., OptLevel::None) to minimize compile-time memory footprint.
- 3. AOT Pre-compilation: Pre-compiling plugins to native binaries at install time, bypassing runtime JIT compilation entirely.
+ 3. AOT Pre-compilation: Pre-compiling plugins to wasmtime's serialized `.cwasm` (compiled module) format at install time, bypassing runtime JIT compilation entirely.
 6.3 Challenge 3: Wayland Visibility & Window Management
-The Problem: Standard Wayland security protocols prevent applications from drawing frameless, floating overlay windows that globally steal keyboard focus. Furthermore, Wayland does not traditionally support "hiding" a window.
+The Problem: Standard Wayland security protocols prevent applications from drawing frameless, floating overlay windows that globally steal keyboard focus. Furthermore, Wayland provides no cheap show/hide toggle — naive approaches require destroying and recreating the surface on every invocation.
 Suggested Solution:
  1. Layer Shell: The client could bypass standard window mapping and explicitly utilize the wlr-layer-shell-unstable-v1 protocol to draw an Overlay layer surface.
- 2. Sub-frame Toggling: To achieve instant invocation without termination overhead, the UI could be "hidden" by detaching the wl_buffer and committing a null buffer, whilst setting KeyboardInteractivity::None.
- 3. Recommended Tech Stack
+ 2. Sub-frame Toggling (Hide): To achieve instant invocation without termination overhead, the UI could be "hidden" by detaching the wl_buffer and committing a null buffer, whilst setting KeyboardInteractivity::None.
+ 3. Sub-frame Toggling (Show): To re-show, reattach the active buffer and restore KeyboardInteractivity to Exclusive (with OnDemand as a fallback for compositors that reject Exclusive grabs).
+ 7. Recommended Tech Stack
    The following ecosystem of crates is highly recommended for achieving the project goals, though alternative crates may be utilized if they better respect the resource targets.
 Core UI: slint (Declarative DSL, minimal runtime).
 IPC Transport & Serialization: interprocess + postcard or bincode (Local sockets with minimal wire overhead).

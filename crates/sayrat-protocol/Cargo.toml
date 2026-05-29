@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+[package]
+name         = "sayrat-protocol"
+description  = "Shared IPC types exchanged between sayratd and sayrat-ui."
+version      .workspace = true
+edition      .workspace = true
+license      .workspace = true
+repository   .workspace = true
+homepage     .workspace = true
+authors      .workspace = true
+rust-version .workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+# Phase 1: protocol carries no types yet. Dependencies are added as the
+# message catalogue is filled in (postcard for serialisation, thiserror
+# for error variants).
+[dependencies]

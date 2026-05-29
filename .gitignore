@@ -1,0 +1,21 @@
+# Rust build output
+/target
+**/target
+
+# Cargo.lock policy: SayRat ships binaries (sayratd, sayrat-ui), so the
+# lockfile is committed for reproducible release builds. Do NOT add it
+# here.
+
+# AOT-compiled Wasm plugin artefacts (Phase 5+).
+*.cwasm
+
+# Editor / IDE scratch directories
+.vscode/
+.idea/
+.zed/
+.fleet/
+.helix/
+*.swp
+*.swo
+*~
+.DS_Store

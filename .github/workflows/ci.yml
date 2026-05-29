@@ -1,0 +1,72 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings"
+
+jobs:
+  # Required gate: must pass on Linux, the project's primary target.
+  check-linux:
+    name: check (ubuntu-latest)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo + target
+        uses: Swatinem/rust-cache@v2
+
+      - name: cargo fmt --check
+        run: cargo fmt --all -- --check
+
+      - name: cargo clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: cargo build (release)
+        run: cargo build --workspace --release
+
+      - name: cargo test
+        run: cargo test --workspace
+
+  # Non-blocking smoke job: catches macOS-specific regressions early
+  # without gating merges. `continue-on-error` lets the matrix go red
+  # without failing the required check above.
+  check-macos:
+    name: check (macos-latest, non-blocking)
+    runs-on: macos-latest
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo + target
+        uses: Swatinem/rust-cache@v2
+
+      - name: cargo fmt --check
+        run: cargo fmt --all -- --check
+
+      - name: cargo clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: cargo build (release)
+        run: cargo build --workspace --release
+
+      - name: cargo test
+        run: cargo test --workspace

@@ -53,6 +53,8 @@ Agents must not add arbitrary dependencies. Only the following approved crates a
 | **Database** | `redb` (primary) / `fjall` (approved fallback) | Pure Rust, ACID-compliant, low-footprint alternative to SQLite. |
 | **Wayland Native**| `smithay-client-toolkit` + `wayland-protocols` | Layer-shell window positioning and surface lifecycle. |
 | **Global Hotkeys**| `global-hotkey` | Native hooks with `zbus` (D-Bus) fallback for Wayland compositors. |
+| **CLI Parsing** | `pico-args` | Minimal argv parsing for the daemon/client flags (`--socket`, `--version`). No proc-macros; chosen over `clap` to protect code size. |
+| **Logging** | `log` + `env_logger` | Lightweight logging facade + env-driven backend. `env_logger` must be declared `default-features = false` (no `humantime`/`jiff`, no `regex`) to protect the footprint budget. `tracing` may be layered later behind a feature flag if structured spans are needed. |
 
 ---
 

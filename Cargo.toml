@@ -2,10 +2,9 @@
 #
 # SayRat workspace manifest.
 #
-# Phase 1 only declares structure. Member crates inherit metadata via
-# `*.workspace = true`; dependency versions are pinned centrally so every
-# crate sees a single resolved version of each approved technology
-# (see agents.md §2 "Hardened Technology Stack").
+# Phase 1 declares structure and only pins dependencies that are actually
+# used by the stub crates. Future phases add approved crates from AGENTS.md
+# when they first become necessary.
 
 [workspace]
 resolver = "2"
@@ -17,93 +16,31 @@ members = [
 
 [workspace.package]
 version      = "0.1.0"
-# Edition 2024 was stabilised in Rust 1.85 (Feb 2025); every current stable
-# toolchain (latest is 1.96.0, released 2026-05-28) ships it by default.
-# Choosing 2024 unlocks the newer disjoint-closure capture rules and
-# tightened prelude, which align with the project's "idiomatic, zero-copy"
-# posture.
+# Edition 2024 requires Rust 1.85+. The workspace pins a concrete floor so
+# CI cache keys and downstream packagers have something stable to assert.
+# MSRV increases require an explicit PR note (AGENTS.md §2.1).
 edition      = "2024"
 license      = "GPL-3.0-or-later"
 repository   = "https://github.com/AQSAMA/SayRat"
 homepage     = "https://github.com/AQSAMA/SayRat"
 authors      = ["SayRat Contributors"]
-# agents.md §2 sets the MSRV policy to "latest stable, reviewed quarterly".
-# We still pin a concrete floor so CI cache keys and downstream packagers
-# have something to assert against. This floor is the most recent toolchain
-# the project has actually built + tested against (1.92.0, Dec 2025); the
-# absolute latest stable is 1.96.0 (2026-05-28) and CI tracks `@stable`, so
-# real builds always run on a current compiler. Bump at the next quarterly
-# review. (Edition 2024 independently requires >= 1.85.)
 rust-version = "1.92"
 
-# Centralised dependency catalogue. Every entry below is approved in
-# agents.md: subsystem crates in §2 (including the "CLI Parsing" and
-# "Logging" rows), plus the error-handling crates named in §5. Adding
-# anything else here requires updating agents.md first (per the §2 intro
-# and CONTRIBUTING.md §4).
+# Centralised dependency catalogue. Do not pre-pin the whole approved stack;
+# add approved crates here when a phase first uses them and keep features
+# minimal (AGENTS.md §7).
 [workspace.dependencies]
-# --- UI / IPC / serialization ---------------------------------------------
-slint        = { version = "1.16", default-features = false }
-interprocess = { version = "2.4", default-features = false }
-postcard     = { version = "1.1", default-features = false, features = ["alloc"] }
-bincode      = { version = "2.0", default-features = false, features = ["alloc"] }
+anyhow = { version = "1.0" }
+pico-args = { version = "0.5" }
+tracing = { version = "0.1", default-features = false, features = ["attributes"] }
+tracing-subscriber = { version = "0.3", default-features = false, features = ["ansi", "env-filter", "fmt", "std"] }
 
-# --- Search ---------------------------------------------------------------
-nucleo  = { version = "0.5" }
-frizbee = { version = "0.9" }
-
-# --- Wasm sandbox ---------------------------------------------------------
-# wasmtime is huge by default; pulling it through workspace deps lets us
-# keep a single feature set for sayratd when it lands in Phase 5.
-wasmtime = { version = "45", default-features = false, features = ["cranelift", "pooling-allocator"] }
-extism   = { version = "1.21" }
-
-# --- Embedded KV store ----------------------------------------------------
-redb  = { version = "2.6" }
-fjall = { version = "3.1" }
-
-# --- Wayland --------------------------------------------------------------
-smithay-client-toolkit = { version = "0.20" }
-wayland-protocols      = { version = "0.32" }
-
-# --- Hotkeys / D-Bus fallback --------------------------------------------
-global-hotkey = { version = "0.8" }
-zbus          = { version = "5.16", default-features = false }
-
-# --- Error handling (agents.md §5) ---------------------------------------
-thiserror = { version = "2.0" }
-anyhow    = { version = "1.0" }
-
-# --- CLI + logging (agents.md §2: "CLI Parsing" + "Logging" rows) --------
-# pico-args is preferred over clap: ~zero dependencies, no proc-macros,
-# < 20 KiB code footprint. The Phase 1 binaries only need `--socket <path>`
-# and `--version`, so clap's derive surface would be wasted weight.
-pico-args  = { version = "0.5" }
-# log + env_logger over tracing: tracing pulls a span/subscriber registry
-# we don't need yet, while log/env_logger compile to a handful of atomic
-# loads when disabled — better fit for the <20MB total budget. We can
-# layer tracing in later behind a feature flag if structured spans become
-# necessary for IPC debugging.
-log        = { version = "0.4" }
-# `humantime` is intentionally omitted: in env_logger 0.11 it pulls in the
-# `jiff` datetime crate (hundreds of KiB) just to format log timestamps —
-# dead weight against the §3 <20MB budget for two stub binaries that don't
-# need timestamps. Only `auto-color` is kept, for readable local-dev output.
-env_logger = { version = "0.11", default-features = false, features = ["auto-color"] }
-
-# Release profile tuned for the agents.md §3 memory budget.
-#   - lto = "fat":      whole-program inlining, removes unreachable code
-#                       paths from every approved crate.
-#   - codegen-units = 1: maximises LTO effectiveness; build time cost is
-#                       acceptable for a project optimising for resident
-#                       size, not iteration speed.
-#   - panic = "abort":   removes unwinding tables (sizeable on x86_64);
-#                       both binaries treat panics as fatal anyway.
+# Release profile tuned for the AGENTS.md §3 memory budget.
+#   - lto = "fat":      whole-program inlining, removes unreachable code.
+#   - codegen-units = 1: maximises LTO effectiveness.
+#   - panic = "abort":   removes unwinding tables.
 #   - strip = "symbols": strips debug + symbol tables from final artefacts.
-#   - opt-level = "z":   strictly smaller than "s" in our measurements on
-#                       slint+wasmtime-shaped crates; serves the <20MB
-#                       resident target directly. Re-evaluate if hot-path
-#                       benchmarks regress past Phase 3.
+#   - opt-level = "z":   optimises for the smallest binary size.
 [profile.release]
 lto             = "fat"
 codegen-units   = 1

@@ -3,7 +3,7 @@
 //! `sayratd` — SayRat background daemon entry point.
 //!
 //! Phase 1 only parses the CLI surface that future phases will rely on
-//! (`--socket <path>` and `--version`), initialises logging, and exits
+//! (`--socket <path>` and `--version`), initialises tracing, and exits
 //! cleanly. No socket binding, indexing, or Wasm host setup yet.
 
 use std::path::PathBuf;
@@ -57,12 +57,17 @@ fn parse_args() -> Result<Option<Args>> {
     Ok(Some(args))
 }
 
+fn init_tracing() {
+    let filter = match tracing_subscriber::EnvFilter::try_from_default_env() {
+        Ok(filter) => filter,
+        Err(_) => tracing_subscriber::EnvFilter::new("info"),
+    };
+
+    tracing_subscriber::fmt().with_env_filter(filter).init();
+}
+
 fn main() -> ExitCode {
-    // env_logger over tracing: smaller dependency tree fits the
-    // <15 MB idle daemon budget (agents.md §3). Default level is `info`
-    // so the startup message below is visible without exporting
-    // `RUST_LOG` during local dev.
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    init_tracing();
 
     let args = match parse_args() {
         Ok(Some(a)) => a,
@@ -73,10 +78,10 @@ fn main() -> ExitCode {
         }
     };
 
-    log::info!("sayratd starting");
+    tracing::info!("sayratd starting");
     match &args.socket {
-        Some(path) => log::debug!("socket path: {}", path.display()),
-        None => log::debug!("socket path: <unset>"),
+        Some(path) => tracing::debug!(socket_path = %path.display()),
+        None => tracing::debug!(socket_path = "<unset>"),
     }
 
     // Phase 1 stub: socket binding, indexer boot, and Wasm engine setup

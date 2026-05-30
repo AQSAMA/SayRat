@@ -3,8 +3,8 @@
 Thanks for considering a contribution. SayRat targets a strict sub-20 MB
 total memory footprint and a Wayland-first dual-process architecture, so
 the bar for merging code is deliberately high. Please read
-[`agents.md`](./agents.md) end-to-end before sending a patch — that file
-is the source of truth and supersedes anything below if they conflict.
+[`AGENTS.md`](./AGENTS.md) end-to-end before sending a patch — that file
+is the governing reference and supersedes anything below if they conflict.
 
 ## Standing rules
 
@@ -17,7 +17,7 @@ These apply to every PR, every phase, every contributor (human or AI):
 2. **No `unwrap` / no `expect`.** Use `thiserror` for library error
    types and `anyhow` for top-level binary error plumbing. IPC
    disconnections must trigger reconnect / graceful shutdown, never a
-   panic. (See [`agents.md` §5](./agents.md#5-agent-instructions--code-style-constraints).)
+   panic. (See [`AGENTS.md` §5](./AGENTS.md#5-agent-operating-model--code-style-constraints).)
 
 3. **Formatting & lints.** CI runs
 
@@ -29,11 +29,12 @@ These apply to every PR, every phase, every contributor (human or AI):
    and rejects any warning. Run both locally before pushing.
 
 4. **Approved crates only.** New dependencies must already be listed in
-   [`agents.md` §2 — Hardened Technology Stack](./agents.md#2-hardened-technology-stack).
-   If you genuinely need something new, update `agents.md` first in a
-   separate PR with the rationale and memory-impact analysis. Pin all
-   versions through `[workspace.dependencies]` in the root
-   `Cargo.toml`; member crates inherit via `dep.workspace = true`.
+   [`AGENTS.md` §2 — Hardened Technology Stack](./AGENTS.md#2-hardened-technology-stack).
+   If you genuinely need something outside the list, update `AGENTS.md` with
+   a justification block covering subsystem, rejected alternatives, and
+   estimated binary-size / RSS impact. Pin used dependency versions through
+   `[workspace.dependencies]` in the root `Cargo.toml`; member crates
+   inherit via `dep.workspace = true`.
 
 5. **No web runtimes.** Electron, Tauri, Wry, WebView2, browser
    embeddings — none of them, ever.
@@ -49,7 +50,7 @@ These apply to every PR, every phase, every contributor (human or AI):
 - [ ] `cargo clippy --workspace --all-targets -- -D warnings` passes.
 - [ ] `cargo build --workspace --release` succeeds.
 - [ ] `cargo test --workspace` passes.
-- [ ] No new dependencies outside the approved list (or `agents.md`
-      updated in the same / a prior PR).
+- [ ] No new dependencies outside the approved list without an `AGENTS.md`
+      update and PR justification block.
 - [ ] Memory-budget impact noted in the PR description if you touch
       `sayratd` or `sayrat-ui` runtime paths.

@@ -3,7 +3,7 @@
 //! `sayrat-ui` — SayRat overlay client entry point.
 //!
 //! Phase 1 only parses `--socket <path>` and `--version`, initialises
-//! logging, and exits cleanly. Slint window construction, layer-shell
+//! tracing, and exits cleanly. Slint window construction, layer-shell
 //! attachment, and IPC connection all arrive in later phases.
 
 use std::path::PathBuf;
@@ -55,8 +55,17 @@ fn parse_args() -> Result<Option<Args>> {
     Ok(Some(args))
 }
 
+fn init_tracing() {
+    let filter = match tracing_subscriber::EnvFilter::try_from_default_env() {
+        Ok(filter) => filter,
+        Err(_) => tracing_subscriber::EnvFilter::new("info"),
+    };
+
+    tracing_subscriber::fmt().with_env_filter(filter).init();
+}
+
 fn main() -> ExitCode {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    init_tracing();
 
     let args = match parse_args() {
         Ok(Some(a)) => a,
@@ -67,10 +76,10 @@ fn main() -> ExitCode {
         }
     };
 
-    log::info!("sayrat-ui starting");
+    tracing::info!("sayrat-ui starting");
     match &args.socket {
-        Some(path) => log::debug!("socket path: {}", path.display()),
-        None => log::debug!("socket path: <unset>"),
+        Some(path) => tracing::debug!(socket_path = %path.display()),
+        None => tracing::debug!(socket_path = "<unset>"),
     }
 
     // Phase 1 stub: real implementation will mount a Slint window on

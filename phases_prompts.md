@@ -7,21 +7,23 @@ This document breaks the SayRat project (see `prd_srs.md` and `AGENTS.md`) into 
 
 Phases are intentionally ordered so each builds on a working, testable foundation:
 
-| # | Phase | Outcome |
-|---|-------|---------|
+| # | Phase | Deliverable Crates / Outcomes |
+|---|-------|-------------------------------|
 | 1 | Foundation & Workspace | Cargo workspace, CI, lints, license headers, skeleton binaries |
-| 2 | IPC Protocol & Daemon Core | `sayratd` daemon, shared protocol crate, socket transport, indexer + `redb` store |
-| 3 | Fuzzy Search Engine & Chunked Streaming | `nucleo` matcher, paged result streaming, cancellation, hot-path zero-copy |
+| 2 | IPC Protocol & Daemon Core | `sayrat-protocol` typed protocol, `sayratd` socket, indexer, `redb`, watcher |
+| 3 | Fuzzy Search Engine & Chunked Streaming | `nucleo` matcher, paged result streaming, cancellation, hot-path zero-copy; `sayrat-cli` dev client added |
 | 4 | UI Client: Slint + Wayland Layer Shell | `sayrat-ui` overlay, `PagedResultModel`, hotkey, sub-frame show/hide |
-| 5 | Wasm Plugin System & Hardening | `wasmtime` pooling/AOT, capability manifests, memory-budget gates, release polish |
+| 5 | Wasm Plugin System & Hardening | `wasmtime` pooling/AOT, capability manifests, memory-budget CI gates, release polish |
 
-> **Standing rules for every phase** (paste at the top of every Build Prompt if the agent has no persistent memory):
-> - The governing docs are `prd_srs.md` + `AGENTS.md`. Do not contradict them; surface conflicts explicitly.
-> - Approved crates only (see `AGENTS.md` §2). No Electron / Tauri / Wry / WebView.
-> - Every new source file starts with `// SPDX-License-Identifier: GPL-3.0-or-later`.
+> **Standing rules for every phase** — canonical source is `AGENTS.md` §7; paste the block below at the top of every Build Prompt if the agent has no persistent context:
+> - The canonical docs are `prd_srs.md` + `AGENTS.md`. When a phase prompt conflicts with either, the canonical docs win; surface the conflict in the PR.
+> - Approved crates only (see `AGENTS.md` §2). No Electron / Tauri / Wry / WebView. No `clap`.
+> - Async runtime: `smol` (primary); `tokio` only with `default-features = false` and documented justification.
+> - Logging/instrumentation: `tracing` + `tracing-subscriber` primary with minimal features; choose once and use the same facade across workspace crates.
+> - Every new `.rs` source file starts with `// SPDX-License-Identifier: GPL-3.0-or-later`.
 > - No `.unwrap()` / `.expect()` in non-test code. Use `thiserror` (libs) / `anyhow` (bins).
 > - Code must pass `cargo fmt --check` and `cargo clippy --all-targets -- -D warnings`.
-> - Memory budgets (UI < 5MB, daemon < 15MB idle, < 20MB combined) and 16ms input-to-render latency are gates for phase acceptance. If measurement shows a gate is unrealistic, report evidence and propose a follow-up instead of silently weakening it.
+> - Memory budgets (UI < 5 MB, daemon < 15 MB idle, < 20 MB combined) and 16 ms p50 input-to-render latency are hard acceptance gates. They become CI gates when the measurement jobs are introduced in Phase 5.
 
 ---
 
@@ -37,12 +39,12 @@ Phases are intentionally ordered so each builds on a working, testable foundatio
 >
 > 1. **Cargo workspace** at the repo root with three member crates:
 >    - `crates/sayrat-protocol` — `lib` crate. Will hold shared IPC types. For now, expose an empty `pub mod messages;` and a crate-level doc comment describing its role.
->    - `crates/sayratd` — `bin` crate. The background daemon. `main` should parse `--socket <path>` and `--version` via `pico-args` and exit cleanly after logging "sayratd starting" through `log` + `env_logger` with default features disabled.
->    - `crates/sayrat-ui` — `bin` crate. The UI client. `main` should parse `--socket <path>` and `--version` and exit cleanly after logging "sayrat-ui starting".
+>    - `crates/sayratd` — `bin` crate. The background daemon. `main` shall parse `--socket <path>` and `--version` via `pico-args` (see `AGENTS.md` §2.1 — `clap` is not approved) and exit cleanly after logging `"sayratd starting"` via the workspace logging facade chosen under `AGENTS.md` §2.2.
+>    - `crates/sayrat-ui` — `bin` crate. The UI client. `main` shall parse `--socket <path>` and `--version` via `pico-args` and exit cleanly after logging `"sayrat-ui starting"` via the same workspace logging facade.
 > 2. **Workspace `Cargo.toml`** with:
 >    - `resolver = "2"`.
 >    - `[workspace.package]` defining shared `version`, `edition = "2021"` (or `2024` if the toolchain supports it — pick one and justify), `license = "GPL-3.0-or-later"`, `repository`, `rust-version`.
->    - `[workspace.dependencies]` table pinning only the approved crates actually used in Phase 1 to current, compatible versions. Member crates inherit via `dep.workspace = true`. Do **not** add any crate that is not on the approved list.
+>    - `[workspace.dependencies]` table pinning only the approved crates actually used in Phase 1 to current, compatible versions. Member crates inherit via `dep.workspace = true`. Do **not** add any crate not on the approved list; do not pre-pin every approved crate before it is used.
 >    - `[profile.release]` tuned for size: `lto = "fat"`, `codegen-units = 1`, `panic = "abort"`, `strip = "symbols"`, `opt-level = "z"` or `"s"` (justify).
 > 3. **License & headers:**
 >    - Top-level `LICENSE` file containing the GPL-3.0-or-later text.
@@ -59,7 +61,7 @@ Phases are intentionally ordered so each builds on a working, testable foundatio
 >    - Use `dtolnay/rust-toolchain@stable` and `Swatinem/rust-cache@v2` (or current equivalents).
 > 7. **Repository hygiene:**
 >    - Add a `docs/` directory with a placeholder `docs/plugin-manifest.md` containing only a `# Plugin Manifest (TBD — Phase 5)` heading and a one-line note. `AGENTS.md` already references this path; do not break that reference.
->    - Add `CONTRIBUTING.md` summarising the standing rules listed at the top of this phases document (SPDX, no unwrap, fmt/clippy, approved crates).
+>    - Add `CONTRIBUTING.md` summarising the standing rules from `AGENTS.md` §7 (SPDX, no unwrap, fmt/clippy, approved crates, no web runtimes, IPC boundary).
 >
 > **Constraints:**
 > - Do **not** implement IPC, search, UI rendering, or plugin loading yet. Stubs only.
@@ -67,7 +69,7 @@ Phases are intentionally ordered so each builds on a working, testable foundatio
 > - Each crate must compile independently with `cargo build -p <crate>`.
 > - The full workspace must pass `cargo fmt --check`, `cargo clippy -- -D warnings`, `cargo build --release`, and `cargo test` with zero warnings.
 >
-> When done, prepare a PR titled `Phase 1: workspace foundation, CI, and crate skeletons` from a branch named `phase-1-foundation` if your environment supports branch operations. The PR description must list every deliverable above and link to the relevant section of `AGENTS.md`.
+> When done, prepare a PR titled `Phase 1: workspace foundation, CI, and crate skeletons` from branch `phase-1-foundation` if your environment supports branch operations. The PR description must list every deliverable above and link to the relevant section of `AGENTS.md`.
 
 ### 1.2 Verification Prompt
 
@@ -88,7 +90,7 @@ Phases are intentionally ordered so each builds on a working, testable foundatio
 >    - `cargo build --workspace --release` succeeds.
 >    - `cargo test --workspace` succeeds (even if zero tests).
 >    - `cargo run -p sayratd -- --version` and `cargo run -p sayrat-ui -- --version` both print and exit cleanly.
-> 9. No forbidden dependencies (Electron, Tauri, Wry, WebView2, browser runtimes, or anything outside `AGENTS.md` §2) appear in `Cargo.lock`.
+> 9. No forbidden dependencies (Electron, Tauri, Wry, WebView2, browser runtimes, `clap`, or anything outside `AGENTS.md` §2) appear in `Cargo.lock`.
 > 10. No `.unwrap()` or `.expect()` outside `#[cfg(test)]` blocks. Run a grep and report any.
 >
 > Conclude with an overall verdict: **APPROVED**, **APPROVED WITH NITS** (list them), or **REJECTED** (list blocking issues, each tied to a specific deliverable).
@@ -101,7 +103,7 @@ Phases are intentionally ordered so each builds on a working, testable foundatio
 
 ### 2.1 Build Prompt
 
-> You are continuing the SayRat project. Phase 1 is merged; Phases 3–5 will follow. Read `prd_srs.md` and `AGENTS.md` again before starting and respect the standing rules at the top of `phases_prompts.md`.
+> You are continuing the SayRat project. Phase 1 is merged; Phases 3–5 will follow. Read `prd_srs.md` and `AGENTS.md` again before starting and respect the standing rules in `AGENTS.md` §7.
 >
 > **Deliverables for Phase 2 (IPC Protocol & Daemon Core):**
 >
@@ -116,19 +118,18 @@ Phases are intentionally ordered so each builds on a working, testable foundatio
 >    - Export a `PROTOCOL_VERSION: u16` constant. Bump policy: any wire-incompatible change increments it.
 >    - 100% unit-test coverage on round-trip (de)serialization for every `Request`/`Response` variant.
 > 2. **Daemon binary (`sayratd`)**
->    - **Async runtime:** use `smol` (or `async-executor` + `async-io`). Do not introduce `tokio`; if you believe it is required, document the justification and use `default-features = false` with the minimal feature set per `AGENTS.md` §5.
+>    - **Async runtime:** use `smol` (or `async-executor` + `async-io`). Do not introduce `tokio`; if you believe it is required, document the justification and use `default-features = false` with the minimal feature set per `AGENTS.md` §2.2.
 >    - **Socket binding:** use `interprocess::local_socket` to listen on `$XDG_RUNTIME_DIR/sayrat.sock` (Linux/macOS), creating the file with `0600` permissions and removing any stale socket on startup. On Windows use the named-pipe equivalent. Make the path overridable via `--socket <path>`.
 >    - **Connection handler:** spawn one task per client. Decode `Request`, dispatch via a `Handler` trait, encode `Response`. Disconnects must be logged at `debug` and never crash the daemon.
 >    - **State machine:** a `DaemonState` struct holding the index handle, indexer task handle, and a shutdown signal. Implement graceful shutdown on `SIGINT` / `SIGTERM` and on receipt of a `Shutdown` request from the local socket: stop accepting connections, drain in-flight handlers (with a 2 s timeout), close the database, then exit 0.
 > 3. **Application indexer**
->    - On startup, scan the standard XDG application directories (`$XDG_DATA_HOME/applications`, `$XDG_DATA_DIRS/applications`, plus the equivalents on macOS/Windows) for `.desktop` entries. Parse with the `freedesktop_entry_parser` crate **only if it is added to the approved list** (otherwise write a minimal hand-rolled parser, since `.desktop` is simple INI). Justify the decision in a comment.
+>    - On startup, scan the standard XDG application directories (`$XDG_DATA_HOME/applications`, `$XDG_DATA_DIRS/applications`, plus the equivalents on macOS/Windows) for `.desktop` entries. Parse with `freedesktop_entry_parser` (approved — see `AGENTS.md` §2.1). If it adds > 50 KB to the stripped binary, a minimal hand-rolled parser is an accepted substitute; document the choice and measure the binary delta.
 >    - Persist parsed entries to a `redb` database at `$XDG_DATA_HOME/sayrat/index.redb`. Schema: a single table `entries: u64 → postcard(Entry)` plus a `meta` table for schema version and last-scan timestamp.
 >    - Implement a `FullRescan` and an `IncrementalUpdate(path)` operation. Both must be idempotent.
 > 4. **Background filesystem watcher**
->    - Use `notify` (Linux/macOS) or the OS-native equivalent only after updating the approved list in `AGENTS.md` with justification. If the team rejects it, fall back to a periodic rescan every 60 s and document the trade-off.
->    - Watch the same XDG application directories. Debounce events (200 ms) and trigger `IncrementalUpdate` for changed files only.
+>    - Use `notify` v7.x (approved — see `AGENTS.md` §2.1) for cross-platform inotify / FSEvents / ReadDirectoryChanges watching. Debounce events (200 ms) and trigger `IncrementalUpdate` for changed files only.
 > 5. **Logging & error handling**
->    - Use `log` + `env_logger` by default. Add `tracing`/`tracing-subscriber` only behind a feature flag if the phase needs spans for measured latency evidence, and document the footprint impact.
+>    - Use `tracing` + `tracing-subscriber` with minimal features and `RUST_LOG`-style filtering (see `AGENTS.md` §2.2). Use the same logging facade as Phase 1 and document measured footprint impact.
 >    - All daemon errors derive `thiserror::Error`. The `main` function uses `anyhow::Result`. Every IPC disconnect is handled, never panicked.
 > 6. **Tests**
 >    - Unit tests for the protocol round-trip (already required above).
@@ -138,7 +139,7 @@ Phases are intentionally ordered so each builds on a working, testable foundatio
 > **Constraints:**
 > - Hot-path code (request decode → handler dispatch → response encode) must avoid heap allocations beyond the postcard buffer. No `String::from`/`format!` in handlers.
 > - The daemon's idle RSS, measured by `/proc/self/statm` after a 5-second warmup with a 100-entry index, must be **< 15 MB** on Linux. Add a `cargo run -p sayratd -- --measure-rss` mode that prints the value and exits, and document the result in the PR.
-> - No new approved-list crates without an explicit justification block in the PR description naming the subsystem and rejected alternatives.
+> - No new crates outside the approved list without an explicit justification block in the PR description naming the subsystem, rejected alternatives, and estimated binary-size / RSS impact.
 >
 > Prepare a PR titled `Phase 2: protocol crate, daemon, indexer, and filesystem watcher` from branch `phase-2-daemon-ipc` if branch operations are available. The PR body must include the measured idle RSS.
 
@@ -158,7 +159,7 @@ Phases are intentionally ordered so each builds on a working, testable foundatio
 > 7. Inspect `redb` schema: tables `entries` and `meta` exist; entries are postcard-encoded; `meta` records the schema version.
 > 8. Hot-path allocation review: read the request handler and confirm no `String::from` / `format!` / `Vec::new` is invoked per request beyond the postcard scratch buffer.
 > 9. Run `cargo run -p sayratd -- --measure-rss` after the daemon has indexed at least 100 synthetic entries. Idle RSS must be **< 15 MB**. Record the value.
-> 10. Standing rules: SPDX headers on all new files, no `.unwrap()`/`.expect()` outside tests, `cargo fmt --check` and `cargo clippy -- -D warnings` clean, integration tests passing in CI.
+> 10. Standing rules: SPDX headers on all new files, no `.unwrap()`/`.expect()` outside tests, `cargo fmt --check` and `cargo clippy -- -D warnings` clean, integration tests passing in CI, no `clap` in `Cargo.lock`.
 >
 > Conclude with **APPROVED / APPROVED WITH NITS / REJECTED** and reference each failed deliverable.
 
@@ -215,7 +216,7 @@ Phases are intentionally ordered so each builds on a working, testable foundatio
 > 7. Hot-path allocation review: confirm `Vec<Match>` buffers are reused, no per-keystroke `String::from`/`format!` in the search path.
 > 8. Run the property/fuzz test and confirm zero panics across at least 1,000 randomized cases.
 > 9. Phase 2 functionality is unbroken: `Hello`, `Ping`, indexer, watcher, graceful shutdown all still pass their integration tests.
-> 10. Standing rules: SPDX, no unwrap/expect, fmt + clippy clean, CI green.
+> 10. Standing rules: SPDX, no unwrap/expect, fmt + clippy clean, CI green, no `clap` in `Cargo.lock`.
 >
 > Verdict: **APPROVED / APPROVED WITH NITS / REJECTED**.
 
@@ -258,9 +259,9 @@ Phases are intentionally ordered so each builds on a working, testable foundatio
 >
 > **Constraints:**
 > - UI client RSS after first show must be **< 5 MB** on Linux. Add `--measure-rss` mode and report the value in the PR.
-> - Input-to-first-frame latency must stay **< 16 ms**. Wire lightweight timing around `keystroke → first chunk rendered` (a feature-gated tracing span is acceptable) and report p50/p99 in the PR.
+> - Input-to-first-frame latency must stay **< 16 ms**. Wire timing around `keystroke → first chunk rendered` (a `tracing` span is expected if the workspace facade is tracing) and report p50/p99 in the PR.
 > - The UI must never perform filesystem scans, database queries, or plugin work. If you find yourself reaching for `std::fs` or `redb` here, stop and route through IPC instead.
-> - macOS / Windows support: the layer-shell and hotkey paths must compile-gate cleanly on those platforms even if they are not fully functional yet (use `#[cfg(target_os = "linux")]` blocks and stub the rest with a lightweight warning log).
+> - macOS / Windows support: the layer-shell and hotkey paths must compile-gate cleanly on those platforms even if they are not fully functional yet (use `#[cfg(target_os = "linux")]` blocks and stub the rest with `tracing::warn!` or the workspace equivalent).
 >
 > Prepare a PR titled `Phase 4: Slint overlay UI with wlr-layer-shell and paged result model` from branch `phase-4-ui-layer-shell` if branch operations are available.
 
@@ -278,7 +279,7 @@ Phases are intentionally ordered so each builds on a working, testable foundatio
 > 8. Activation: select an entry, press Enter, confirm the application launches detached and the UI hides immediately.
 > 9. Reconnect logic: kill the daemon while the UI is open. Confirm a "Reconnecting..." status appears, the UI stays alive, and reconnection succeeds when the daemon comes back.
 > 10. Cross-platform compile: `cargo check -p sayrat-ui --target x86_64-pc-windows-gnu` (if available) and `--target x86_64-apple-darwin` succeed (functional on Linux only is fine).
-> 11. Standing rules: SPDX, no unwrap/expect, fmt + clippy clean, no forbidden deps.
+> 11. Standing rules: SPDX, no unwrap/expect, fmt + clippy clean, no forbidden deps, no `clap` in `Cargo.lock`.
 >
 > Verdict: **APPROVED / APPROVED WITH NITS / REJECTED**.
 
@@ -310,12 +311,12 @@ Phases are intentionally ordered so each builds on a working, testable foundatio
 >      ```
 >    - Implement a `sayrat-protocol::manifest` module (or sibling crate `sayrat-plugin-manifest`) that parses, validates (semver, ID format, no `..` in paths), and exposes the manifest as a strongly typed struct. Unknown TOML keys are rejected.
 > 2. **Wasm host in `sayratd`**
->    - Use `wasmtime` configured with:
+>    - Use `wasmtime` + `wasmtime-wasi` (both approved — see `AGENTS.md` §2.1) configured with:
 >      - `PoolingAllocationConfig` capping per-instance memory (e.g., 16 MiB) and table size.
 >      - `Config::cranelift_opt_level(OptLevel::None)` if dynamic loading is supported, **and** prefer the AOT path: ship a `sayratctl plugin install <path>` subcommand (in `sayrat-cli`) that compiles `.wasm` → `.cwasm` once at install time and stores it under `$XDG_DATA_HOME/sayrat/plugins/`.
 >    - Plugins are discovered at daemon startup by scanning `$XDG_DATA_HOME/sayrat/plugins/*/manifest.toml`. Each plugin gets its own `Store<PluginCtx>`.
->    - **Zero ambient authority**: build a `wasmtime_wasi::WasiCtx` that grants exactly the directories, env vars, and (if implemented) network sockets declared in the manifest, and **nothing else**. Anything undeclared must result in a permission-denied trap, not a silent fallback.
->    - Enforce per-call execution budget via `Engine::epoch_interruption` (e.g., 100 ms wall clock); plugins that exceed it are killed cleanly without taking down the daemon.
+>    - **Zero ambient authority:** build a `wasmtime_wasi::WasiCtx` that grants exactly the directories, env vars, and (if implemented) network sockets declared in the manifest, and **nothing else**. The `WasiCtx` starts empty; capabilities are added only after manifest validation. Anything undeclared must result in a permission-denied trap, not a silent fallback.
+>    - Enforce per-call execution budget via `Engine::epoch_interruption` (≤ 100 ms wall clock); plugins that exceed it are killed cleanly without taking down the daemon.
 > 3. **Plugin ABI**
 >    - Define a minimal stable ABI in `sayrat-protocol::plugin_abi`:
 >      - Exported by the plugin: `sayrat_query(query_ptr: u32, query_len: u32) -> u64` returning a packed `(ptr, len)` to a postcard-encoded `Vec<PluginEntry>`.
@@ -330,7 +331,7 @@ Phases are intentionally ordered so each builds on a working, testable foundatio
 >      - `sayratd` idle RSS < 15 MB.
 >      - `sayrat-ui` post-show RSS < 5 MB.
 >      - Combined RSS < 20 MB.
->    - The job fails the build on regression. Use `cargo run -- --measure-rss` modes from earlier phases.
+>    - The job fails the build on regression. Use the `--measure-rss` modes established in Phases 2 and 4.
 > 6. **Release polish**
 >    - `cargo deny` configuration checking licenses (deny anything stricter than GPL-3.0-or-later compatible) and known advisories. Add a CI step.
 >    - `CHANGELOG.md` seeded with one entry per phase.
@@ -343,9 +344,9 @@ Phases are intentionally ordered so each builds on a working, testable foundatio
 >    - End-to-end test: install `examples/plugin-echo`, start the daemon + UI, search for `hello`, confirm `HELLO` appears as a `PluginCommand` row.
 >
 > **Constraints:**
-> - No new approved-list crates beyond what `AGENTS.md` §2 already names, except `wasmtime-wasi` (assumed implicit) and `cargo-deny` (CI-only). Anything else needs an explicit justification in the PR.
+> - No new crates beyond the approved list in `AGENTS.md` §2. `wasmtime-wasi` is already approved as part of the Wasmtime suite; `cargo-deny` is already approved for CI use. Any other addition needs an explicit justification in the PR.
 > - Plugins must never default to having any capability. The default `WasiCtx` is empty; capabilities are added only after manifest validation.
-> - Memory budgets are hard gates: a regression in CI fails the build.
+> - Memory budgets are hard acceptance gates and, after the Phase 5 CI job lands, regressions fail the build.
 >
 > Prepare a PR titled `Phase 5: wasmtime plugin sandbox, capability manifests, memory gates, and release tooling` from branch `phase-5-plugins-hardening` if branch operations are available. Tag `v0.1.0` only after the PR is merged and release checks pass.
 
@@ -357,19 +358,19 @@ Phases are intentionally ordered so each builds on a working, testable foundatio
 > 2. `wasmtime` host configuration:
 >    - Read the source. Confirm `PoolingAllocationConfig` is set with explicit per-instance caps.
 >    - Confirm AOT path: `sayratctl plugin install` compiles `.wasm` → `.cwasm` at install time. Run it on `examples/plugin-echo` and confirm the resulting `.cwasm` file appears under `$XDG_DATA_HOME/sayrat/plugins/`.
->    - Confirm epoch-interruption is enabled with a sane budget.
+>    - Confirm epoch interruption is enabled with a ≤ 100 ms budget.
 > 3. Capability enforcement:
 >    - Run the malicious-plugin test (or write one if missing): a plugin attempts undeclared filesystem and network access. Both must trap with permission errors. The daemon process must remain alive (PID unchanged, socket still serving).
 >    - Confirm `WasiCtx` starts empty and is populated *only* from manifest declarations.
 > 4. Default deny: a plugin with an empty `[capabilities]` block has zero filesystem, network, and env access. Verify by code review and by running the malicious test with that manifest.
-> 5. Search integration: install the echo plugin, start daemon + UI, type `hello`, confirm a `PluginCommand` result with name `HELLO` appears within the same chunk window as native results. Aggregate plugin timeout is observed (kill the echo plugin's main loop with a sleep and confirm it is dropped from results, not the whole search).
+> 5. Search integration: install the echo plugin, start daemon + UI, type `hello`, confirm a `PluginCommand` result with name `HELLO` appears within the same chunk window as native results. Aggregate plugin timeout is observed (add a sleep to the echo plugin's main loop and confirm it is dropped from results, not the whole search).
 > 6. Memory gates in CI:
 >    - Inspect the new CI job. Confirm it asserts `sayratd < 15 MB`, `sayrat-ui < 5 MB`, combined `< 20 MB`.
 >    - Trigger a deliberate regression (e.g., add a `Vec<u8>` of 10 MB to `DaemonState`) on a throwaway branch and confirm CI fails. Revert.
 > 7. `cargo deny check licenses advisories` runs in CI and passes. No GPL-incompatible dependency is present.
 > 8. Release workflow: tag a dry-run prerelease (`v0.1.0-rc1`), confirm the workflow produces stripped `x86_64-unknown-linux-gnu` and `x86_64-unknown-linux-musl` binaries plus `SHA256SUMS`.
 > 9. End-to-end smoke (manual or scripted): cold start daemon → UI hotkey → type `ec` → echo plugin result appears → `Enter` activates → UI hides → daemon still serves.
-> 10. Standing rules across the whole tree: every file has SPDX header, no `.unwrap()`/`.expect()` outside tests, fmt + clippy clean across all crates, `AGENTS.md` constraints respected (no Electron/Tauri/etc., no unapproved deps).
+> 10. Standing rules across the whole tree: every file has SPDX header, no `.unwrap()`/`.expect()` outside tests, fmt + clippy clean across all crates, `AGENTS.md` constraints respected (no Electron/Tauri/etc., no unapproved deps, no `clap`).
 >
 > Final verdict: **SHIP IT** / **APPROVED WITH NITS** / **REJECTED**, with a one-paragraph executive summary covering correctness, performance, and security posture.
 
@@ -379,5 +380,5 @@ Phases are intentionally ordered so each builds on a working, testable foundatio
 
 - **Branching:** every phase produces exactly one PR off `main`. Do not stack phase branches; merge sequentially.
 - **PR description template:** every PR must include (a) a checklist mapping each deliverable in the build prompt to a commit or file, (b) measured numbers (RSS, latency) where applicable, (c) any deviation from `AGENTS.md` with explicit justification.
-- **If a build prompt conflicts with `AGENTS.md`/`prd_srs.md`:** the canonical docs win. The agent must surface the conflict in the PR description rather than silently resolve it.
-- **Verification independence:** ideally run each Verification Prompt in a fresh agent session with no memory of the Build Prompt, so the audit is genuinely adversarial.
+- **Conflict resolution:** if a build prompt conflicts with `AGENTS.md` or `prd_srs.md`, the canonical docs win. The agent must surface the conflict in the PR description rather than silently resolving it.
+- **Verification independence:** run each Verification Prompt in a fresh agent session with no memory of the Build Prompt where practical. The audit should be adversarial: the reviewer finds what the builder missed, not what they claimed.

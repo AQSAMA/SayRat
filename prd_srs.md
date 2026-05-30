@@ -1,96 +1,124 @@
-# SayRat PRD & SRS
+# Product Requirement Document (PRD) & Software Requirements Specification (SRS)
 
-**Project codename:** SayRat  
-**License:** GPL-3.0-or-later
+**Project Codename:** SayRat<br>
+**License:** GPL-3.0-or-later<br>
+**Canonical Implementation Reference:** `AGENTS.md` is the authoritative source for the hardened technology stack, architectural mandates, and standing rules that govern all implementation decisions. This document defines *what* is required; `AGENTS.md` defines *how* it must be built.
 
-## Part 1 — Product Requirements Document (PRD)
+---
+
+## Part 1 — Product Requirement Document (PRD)
 
 ### 1. Product Vision & Problem Statement
 
-**Vision:** Build an open-source, ultra-lightweight keyboard launcher for desktop power users. SayRat aims for instant invocation, near-zero input latency, and a sandboxed WebAssembly plugin ecosystem while keeping the combined UI + daemon footprint near 20 MB.
+**Vision:** Build an open-source, ultra-lightweight keyboard launcher for desktop power users delivering instant invocation, near-zero input latency, and a sandboxed WebAssembly plugin ecosystem within a sub-20 MB total memory footprint.
 
-**Problem statement:** Existing launcher solutions often struggle in modern desktop environments:
+**Problem Statement:** Existing launcher solutions face two common failure modes on modern desktops:
 
-1. **Web-based heavyweights:** Electron/WebView launchers can consume 150–400 MB RAM, add perceptible input lag, and slow cold starts.
-2. **Legacy native limitations:** X11-centric launchers can struggle on Wayland because they depend on old window-management primitives and often lack modern isolated extensibility.
+1. **Web-based Heavyweights:** Electron/WebView-based launchers embed full browser runtimes, resulting in memory footprints of 150–400 MB, perceptible input lag, and slow cold starts.
+2. **Legacy Native Limitations:** X11-centric native launchers struggle on modern Wayland compositors because they rely on older window-management primitives and typically lack modern, isolated extensibility.
 
 ### 2. Target Audience & Use Cases
 
-**Primary audience:** Linux power users, system administrators, minimalists, and developers using tiling window managers such as Sway or Hyprland, or other Wayland desktops.
+**Primary Audience:** Linux power users, system administrators, minimalists, and developers using tiling window managers (Sway, Hyprland) or modern Wayland desktops.
 
-**Secondary audience:** macOS and Windows developers seeking a fast, hyper-minimalist alternative to Spotlight or PowerToys Run.
+**Secondary Audience:** macOS and Windows developers seeking a fast, hyper-minimalist alternative to Spotlight or PowerToys Run.
 
-**Core use cases:**
+**Core Use Cases:**
 
 - Rapid application launching and window switching.
 - Blazing-fast fuzzy file navigation.
-- Interacting with third-party APIs through sandboxed plugins.
+- Interacting with third-party APIs via sandboxed plugins.
 
-### 3. MVP Features
+### 3. MVP Feature Set
 
-- **Instant UI rendering:** The interface should appear immediately after a global hotkey press.
-- **Fuzzy finding engine:** As-you-type, typo-tolerant search across entries such as applications and files with minimal UI blocking.
-- **Dual-process architecture:** A headless daemon handles state and Wasm execution; a separate UI client focuses on rendering and input capture.
-- **Wasm plugin engine:** Load and execute compiled Wasm plugins with restricted capabilities.
-- **Wayland-first native implementation:** Native Wayland window generation with layer-shell integration where available.
+| Feature | Description |
+| :--- | :--- |
+| **Instant UI Rendering** | The launcher interface appears immediately on global hotkey press with no perceptible delay. |
+| **Fuzzy Finding Engine** | As-you-type, typo-tolerant search across applications and files with sub-16 ms result updates under the benchmark workload. |
+| **Dual-Process Architecture** | A headless background daemon manages state and Wasm execution; an ephemeral UI client handles pure rendering. This split is mandatory — see `AGENTS.md` §1. |
+| **Wasm Plugin Engine** | Load and execute compiled Wasm plugins with restricted WASI capabilities under a zero-ambient-authority sandbox. |
+| **Wayland-First Native** | Frameless overlay via `wlr-layer-shell-unstable-v1` with sub-frame show/hide toggling where available — see `AGENTS.md` §4.3. |
+
+---
 
 ## Part 2 — Software Requirements Specification (SRS)
+
+> **Language convention:** **shall / must** = binding requirement. **should** = strongly recommended default. **may** = permitted but not mandated.
 
 ### 4. Functional Requirements
 
 #### 4.1 Daemon Process (`sayratd`)
 
-- **Lifecycle & state:** Run as a background user service, bind to a local socket, and maintain application state and plugin lifecycle.
-- **Asynchronous indexing:** Monitor filesystem changes through OS-native events where feasible, with a documented fallback when platform support is unavailable.
-- **Plugin hosting:** Load Wasm plugins into an isolated, capability-based sandbox that denies filesystem, network, and environment access by default.
+- **Lifecycle & State:** The daemon shall run as a background user service, bind to a local socket, and maintain full application state and plugin lifecycle across UI invocations.
+- **Asynchronous Indexing:** The daemon shall monitor the standard XDG application directories for filesystem changes where supported and update the search index in the background without blocking IPC handling.
+- **Plugin Hosting:** The daemon shall load `.cwasm` plugins into an isolated Wasm sandbox with capability-based security. Network access, host filesystem access, and environment variables shall be denied by default and granted only through the validated plugin manifest.
 
 #### 4.2 UI Client Process (`sayrat-ui`)
 
-- **View rendering:** Render the frameless floating search interface using Slint.
-- **Input capture:** Capture keystrokes and forward them to the daemon over IPC so the UI stays simple and responsive.
-- **Suspended state:** Remain resident but invisible between invocations so showing the launcher avoids process startup latency.
+- **View Rendering:** The client shall render the frameless, floating search interface using the Slint DSL.
+- **Input Capture:** The client shall capture keystrokes and forward them to the daemon via IPC. All search logic runs in the daemon; the client performs no local matching.
+- **Suspended State:** The client shall remain initialized in memory between invocations, waking on global hotkey or IPC signal with no perceptible latency.
+- **Read-Only Boundary:** The client must not access the filesystem, database, or plugin runtime directly. Any cross-process need goes through the `sayrat-protocol` IPC layer.
 
 #### 4.3 Inter-Process Communication (IPC)
 
-- **Protocol:** Bidirectional, low-latency communication over local sockets.
-- **Payloads:** Strictly typed compact serialization, preferably `postcard` with `bincode` as an approved fallback.
+- **Transport:** Bidirectional communication shall use `interprocess` local sockets on Linux/macOS and Named Pipes on Windows.
+- **Serialization:** All payloads shall use `postcard` (primary) or `bincode` (approved fallback) — strictly typed and zero-copy where possible.
+- **Framing:** A length-prefixed (`u32` little-endian) frame codec shall be used. A `MAX_FRAME_BYTES` constant (1 MiB) shall be enforced; oversized frames shall be rejected, not panicked.
 
 ### 5. Non-Functional Requirements
 
-- **Memory budgets:** Target `< 5 MB` RSS for `sayrat-ui`, `< 15 MB` idle RSS for `sayratd`, and roughly `< 20 MB` combined steady-state RSS. These are product targets; implementation phases should measure them and document any evidence-based adjustment before relaxing a gate.
-- **Latency:** Search results should update within 16 ms of a keystroke under the benchmark workload defined in the implementation phases.
-- **Security:** Plugins execute with no ambient authority. Host filesystem, network, and environment access must be absent unless explicitly declared in the plugin manifest and granted by the host.
+These targets are hard acceptance gates for the relevant implementation phases and become CI-enforced once the measurement jobs are introduced in Phase 5.
 
-### 6. Architectural Edge Cases & Suggested Mitigations
+| Metric | Target | Measured As |
+| :--- | :--- | :--- |
+| UI Client RSS | < 5 MB | Active, post-first-show |
+| Daemon RSS | < 15 MB | Idle, post-warmup with ≥ 100 indexed entries |
+| Combined RSS | < 20 MB | Steady-state (both processes running) |
+| Input-to-first-render latency | < 16 ms p50 | Keystroke → first search chunk rendered on screen |
+| Plugin execution budget | ≤ 100 ms | Per Wasm call, enforced via epoch interruption |
 
-These approaches help developers and AI agents handle known edge cases. They are recommendations at the PRD/SRS level; stronger constraints and approved implementation details live in `AGENTS.md`.
+**Security (WASI):** Plugins shall execute inside a `wasmtime` engine configured with no ambient authority. A `WasiCtx` starts empty; capabilities are added only after manifest validation. Anything undeclared in the manifest must result in a permission-denied trap, not a silent fallback.
 
-#### 6.1 Slint `VectorModel` Bottleneck
+### 6. Architecture Edge Cases & Mandatory Mitigations
 
-**Problem:** Replacing a large dynamic list can trigger broad `row_data_changed` notifications and cause frame drops.
+The following mitigations address known platform limitations. They are mandatory implementation requirements — see `AGENTS.md` §4 for full implementation detail and rationale.
 
-**Suggested solution:** Chunk results over IPC. The daemon sends fixed-size chunks, and the client maintains a paged result model that renders the first visible page immediately and appends subsequent chunks without resetting the entire model.
+#### 6.1 Slint VectorModel Bottleneck
+
+Replacing the `VectorModel` dataset can trigger broad `row_data_changed` notifications, causing frame drops on large result sets.
+
+**Required mitigation:** The daemon shall stream results in chunks of ≤ 50 matches over IPC. The UI client shall implement a `PagedResultModel` that emits only `row_added` for incoming items — never a dataset reset or `row_data_changed` on already-rendered rows.
 
 #### 6.2 Wasm Runtime Memory Bloat
 
-**Problem:** A default Wasm engine can consume tens of megabytes for compiler, code-cache, and allocator structures.
+Default Wasmtime with Cranelift JIT compilation can allocate 30–50 MB on initialization, violating the daemon RSS budget.
 
-**Suggested solution:** Tune the runtime for low footprint through pooling allocation, low-overhead compilation settings, and ahead-of-time compilation to `.cwasm` during plugin installation.
+**Required mitigation:** The daemon shall configure `wasmtime` with a `PoolingAllocationConfig` capping per-instance resource consumption. Plugins shall be pre-compiled from `.wasm` to `.cwasm` (AOT) at install time via the plugin install flow, bypassing JIT overhead entirely at runtime where supported.
 
 #### 6.3 Wayland Visibility & Window Management
 
-**Problem:** Wayland intentionally restricts global focus grabs and cheap show/hide behavior for regular application windows.
+Standard Wayland prevents regular application windows from grabbing keyboard focus globally and provides no cheap show/hide toggle; naive teardown/recreate adds perceptible latency.
 
-**Suggested solution:** Use `wlr-layer-shell-unstable-v1` where available, hide by detaching the `wl_buffer` and disabling keyboard interactivity, and show by reattaching the buffer with compositor-appropriate keyboard interactivity.
+**Required mitigation:** The client shall use `wlr-layer-shell-unstable-v1` to create an `Overlay` layer surface where available. Hide is implemented by detaching the `wl_buffer`, committing a null buffer, and setting `KeyboardInteractivity::None`. Show restores the active buffer and `Exclusive` (or `OnDemand`) interactivity. The surface must not be destroyed between visibility toggles.
 
-### 7. Recommended Tech Stack
+### 7. Required Technology Stack
 
-The implementation should start from the approved stack in `AGENTS.md` and add dependencies only when they are used and justified.
+The crates below are required or approved by this project. See `AGENTS.md` §2 for the complete approved list, implementation constraints, crate addition policy, feature restrictions, and pre-approved fallbacks for each subsystem.
 
-- **Core UI:** `slint`.
-- **IPC transport & serialization:** `interprocess` + `postcard` or `bincode`.
-- **Fuzzy searching:** `nucleo` or `frizbee`.
-- **Wasm host:** `wasmtime` or `extism`.
-- **Embedded database:** `redb` or `fjall`.
-- **Wayland integration:** `smithay-client-toolkit` + `wayland-protocols`.
-- **Global hotkeys:** `global-hotkey`, with D-Bus fallback where compositor policy requires it.
+| Subsystem | Primary Crate(s) | Approved Fallback |
+| :--- | :--- | :--- |
+| UI | `slint` | — |
+| IPC Transport | `interprocess` | — |
+| Serialization | `postcard` | `bincode` |
+| Fuzzy Search | `nucleo` | `frizbee` |
+| Wasm Host | `wasmtime` + `wasmtime-wasi` | `extism` |
+| Database | `redb` | `fjall` |
+| Wayland | `smithay-client-toolkit` + `wayland-protocols` | — |
+| Global Hotkeys | `global-hotkey` + `zbus` (D-Bus fallback) | — |
+| CLI Parsing | `pico-args` | — |
+| Async Runtime | `smol` | `tokio` with `default-features = false` and justification |
+| Logging / Instrumentation | `tracing` + `tracing-subscriber` | `log` + `env_logger` with documented reason |
+| Error Handling | `thiserror` (libs) + `anyhow` (bins) | — |
+| Filesystem Events | `notify` v7.x | Periodic rescan if watcher is rejected by platform/policy |
+| Desktop Entry Parsing | `freedesktop_entry_parser` | Hand-rolled minimal parser if binary delta > 50 KB |

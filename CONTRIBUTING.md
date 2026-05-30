@@ -30,10 +30,11 @@ These apply to every PR, every phase, every contributor (human or AI):
 
 4. **Approved crates only.** New dependencies must already be listed in
    [`AGENTS.md` §2 — Hardened Technology Stack](./AGENTS.md#2-hardened-technology-stack).
-   If you genuinely need something new, update `AGENTS.md` first in a
-   separate PR with the rationale and memory-impact analysis. Pin all
-   versions through `[workspace.dependencies]` in the root
-   `Cargo.toml`; member crates inherit via `dep.workspace = true`.
+   If you genuinely need something outside the list, update `AGENTS.md` with
+   a justification block covering subsystem, rejected alternatives, and
+   estimated binary-size / RSS impact. Pin used dependency versions through
+   `[workspace.dependencies]` in the root `Cargo.toml`; member crates
+   inherit via `dep.workspace = true`.
 
 5. **No web runtimes.** Electron, Tauri, Wry, WebView2, browser
    embeddings — none of them, ever.
@@ -49,7 +50,7 @@ These apply to every PR, every phase, every contributor (human or AI):
 - [ ] `cargo clippy --workspace --all-targets -- -D warnings` passes.
 - [ ] `cargo build --workspace --release` succeeds.
 - [ ] `cargo test --workspace` passes.
-- [ ] No new dependencies outside the approved list (or `AGENTS.md`
-      updated in the same / a prior PR).
+- [ ] No new dependencies outside the approved list without an `AGENTS.md`
+      update and PR justification block.
 - [ ] Memory-budget impact noted in the PR description if you touch
       `sayratd` or `sayrat-ui` runtime paths.

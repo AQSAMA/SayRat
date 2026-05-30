@@ -2,7 +2,7 @@
 
 **Project Vision:** SayRat is an open-source, ultra-lightweight keyboard launcher for desktop power users. It relies on a Wayland-first, Wasm-extensible, dual-process architecture written in Rust, targeting a strict sub-20MB total memory footprint and instant cold-starts.
 
-This document serves as the absolute source of truth for all AI agents, coding assistants (e.g., Cursor, Aider, Copilot), and automated pipelines interacting with this codebase.
+This document is the repository-level instruction contract for AI agents, coding assistants (e.g., Codex, Claude Code, Cursor, Aider, Copilot), and automated pipelines interacting with this codebase. Prefer concrete diffs, measurable verification, and explicit trade-off notes over persona prompts or speculative implementation plans.
 
 ---
 
@@ -44,7 +44,7 @@ Agents must not add arbitrary dependencies. Only the following approved crates a
 
 | Subsystem | Approved Technology | Implementation Constraints |
 | :--- | :--- | :--- |
-| **Core Language** | Rust (Latest Stable) | Idiomatic, zero-copy architecture where applicable. MSRV: latest stable, reviewed quarterly. |
+| **Core Language** | Rust (stable toolchain) | Idiomatic, zero-copy architecture where applicable. MSRV tracks stable unless a phase pins it; review quarterly and document any increase. |
 | **UI Framework** | `slint` | Declarative UI DSL compiled natively down to bare metal. |
 | **IPC Transport** | `interprocess` | Local Unix domain sockets (Linux/macOS) / Named Pipes (Windows). |
 | **Serialization** | `postcard` (primary) / `bincode` (approved fallback) | Strictly typed, compact binary format with zero-copy features. New code should default to `postcard`. |
@@ -54,13 +54,13 @@ Agents must not add arbitrary dependencies. Only the following approved crates a
 | **Wayland Native**| `smithay-client-toolkit` + `wayland-protocols` | Layer-shell window positioning and surface lifecycle. |
 | **Global Hotkeys**| `global-hotkey` | Native hooks with `zbus` (D-Bus) fallback for Wayland compositors. |
 | **CLI Parsing** | `pico-args` | Minimal argv parsing for the daemon/client flags (`--socket`, `--version`). No proc-macros; chosen over `clap` to protect code size. |
-| **Logging** | `log` + `env_logger` | Lightweight logging facade + env-driven backend. `env_logger` must be declared `default-features = false` (no `humantime`/`jiff`, no `regex`) to protect the footprint budget. `tracing` may be layered later behind a feature flag if structured spans are needed. |
+| **Logging / Metrics** | `log` + `env_logger` (baseline), optional `tracing` behind feature flags | Keep the default runtime lightweight. `env_logger` must be declared `default-features = false` (no `humantime`/`jiff`, no `regex`). Use lightweight metrics or spans only where they directly support latency/RSS verification. |
 
 ---
 
 ## 3. Strict Non-Functional Requirements & Budgets
 
-All code generation and structural changes must validate against these explicit performance baselines:
+All code generation and structural changes must validate against these explicit performance baselines. If a dependency or platform makes a budget impossible, do not silently weaken the requirement: measure it, explain the trade-off in the PR, and propose a smaller follow-up before merging.
 
 * **Memory Budgets:**
   * UI Client (`sayrat-ui`): **< 5MB RAM** active footprint.
@@ -101,8 +101,11 @@ When generating code for subsystems, agents must follow these explicit mitigatio
 
 ---
 
-## 5. Agent Instructions & Code Style Constraints
+## 5. Agent Operating Model & Code Style Constraints
 
+* **Execution Style:** Start from the current repository state, make the smallest coherent change, and verify with commands that future agents can rerun. Do not rely on hidden context, long prompt incantations, or claims without file/test evidence.
+* **Planning:** For large work, maintain a short checklist tied to deliverables and update it as facts change. Surface conflicts with this file or `prd_srs.md` instead of improvising around them.
+* **Dependencies:** Treat the approved stack as a default allow-list, not a license to add every listed crate immediately. Add dependencies only when used, keep features minimal, and justify any new crate or feature in the PR.
 * **No Web Views:** Under no circumstances should Electron, Tauri, Wry, WebView2, or any browser-based runtime be imported. Code additions doing so will be rejected.
 * **Memory Allocations:** Minimize allocations in the hot path (as-you-type fuzzy searching). Reuse vectors, utilize references, and leverage zero-copy parsing (`postcard::from_bytes`) directly out of the IPC stream buffers.
 * **Async Framework:** Prefer a lightweight async runtime (`smol` / `async-executor`) or direct OS thread channels to keep the footprint small. If `tokio` is required, it must be declared with `default-features = false` and only the minimal feature set needed (e.g., `rt`, `net`, `macros`); pulling in `tokio` with default or `full` features is not permitted.

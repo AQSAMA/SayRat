@@ -26,7 +26,7 @@ overlay client renders a frameless Slint window and forwards keystrokes.
 +--------------------------------------------------------------+
 ```
 
-(Source: [`agents.md` §1](./agents.md#1-system-architecture--boundaries).)
+(Source: [`AGENTS.md` §1](./AGENTS.md#1-system-architecture--boundaries).)
 
 ## Workspace layout
 
@@ -69,7 +69,7 @@ cargo build -p sayrat-ui
 
 ## For AI contributors
 
-[`agents.md`](./agents.md) is the source of truth for architecture
+[`AGENTS.md`](./AGENTS.md) is the governing reference for architecture
 boundaries, the approved technology stack, memory budgets, and code-style
 constraints. Read it before opening a PR; CI will reject contributions
 that violate the rules listed there.

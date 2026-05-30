@@ -13,7 +13,4 @@ rust-version .workspace = true
 [lib]
 path = "src/lib.rs"
 
-# Phase 1: protocol carries no types yet. Dependencies are added as the
-# message catalogue is filled in (postcard for serialisation, thiserror
-# for error variants).
 [dependencies]
